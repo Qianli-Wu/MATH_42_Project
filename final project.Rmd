@@ -1,0 +1,188 @@
+---
+title: "Untitled"
+author: "Qianli Wu"
+date: "11/29/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# import data of latitude of center of fish and temperature
+year <- seq(from  = 1974, to = 1985)
+north <- c(57.68, 57.43, 57.603, 57.460, 57.63, 58, 58.07, 58.223, 58.3, 58.47, 59.322, 59.609)
+data <- cbind(year, north)
+data <- data.frame(data)
+temperature <- c(-0.42, -0.438, -0.366, -0.078, -0.186, 0.048, 0.066, -0.006, -0.006, 0.138, -0.042, -0.114)
+temperature <- temperature+0.438
+
+temperature <- c(-0.07, -0.01, -0.1, 0.18, 0.07, 0.16, 0.26, 0.32, 0.14, 0.31, 0.16, 0.12)
+temperature <- c(0.01, 0.02, 0.04, 0.07, 0.12, 0.16, 0.2, 0.21, 0.22, 0.21, 0.21, 0.22)
+data <- cbind(data, temperature)
+```
+
+```{r}
+# Plot the scatter plot of temperature and the latitude of center of fish
+plot(temperature, north, xlab = "Temperature", ylab = "Latitude of Center of Fishes")
+abline(lm( north ~ temperature), col = "blue")
+```
+
+```{r}
+# Print the correlation between temperature and the latitude of center of fishes
+cor(temperature, north)^2
+```
+Since the result is 0.568, it shows that there's moderate positive correlation between temperature and latitude of center of fishes
+
+\pagebreak
+
+```{r}
+library(ggplot2)
+ggplot(data, aes(x=temperature, y=north)) +
+  geom_point(size=3, shape=20, color = "red") + 
+  theme_test() +
+  geom_smooth(method = lm)
+```
+```{r}
+# get the equation of regression line
+lm( north ~ temperature)
+```
+```{r}
+temperature2016 <- 0.87
+# predict using given temperature to predict north
+tempPredict <- function(x){
+  y = 57.264+6.292*x
+  return(y)
+}
+# predict the latitude of the center of fish in 2016
+tempPredict(temperature2016)
+```
+```{r}
+# input the temperature data from 1880 to 2020
+allTemp <- read.csv("temperature.csv")
+allTemp <- allTemp[,2:4]
+colnames(allTemp) <- c("Year", "temp1", "temp2")
+```
+
+```{r}
+Temp <- allTemp[91:141,]
+Temp
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Plot the scatter plot of temperature and year
+plot(allTemp$Year, allTemp$temp2, xlab = "Year", ylab = "Temperature")
+abline(lm(allTemp$temp2 ~ allTemp$Year), col = "red")
+```
+```{r}
+# Get the equation of the regression line
+lm(allTemp$temp2 ~ allTemp$Year)
+```
+```{r}
+# Using the regression line to predict the temperature in 2072
+temperature2072 <- 0.007599*2072-14.769749
+```
+```{r}
+# Using the regression found above the predict the lattitude of center of fish in 2072
+tempPredict(temperature2072)
+```
+
+
+
+
+
+
+\pagebreak
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+plot(allTemp$Year[91:141], allTemp$temp2[91:141], xlim = c(1970, 2080), ylim = c(-0.2, 2), xlab = "Year", ylab = "Temperature")
+abline(lm(allTemp$temp2[91:141] ~ allTemp$Year[91:141]), col = "red")
+points(2070, 1.86, col = "red")
+```
+```{r}
+temperature <- allTemp$temp2[70:141]
+year <- allTemp$Year[70:141]
+models <- lm(temperature ~ year)
+models
+```
+```{r}
+0.01483*2072-29.15034
+```
+```{r}
+tempPredict(1.57742)
+```
+```{r}
+new.year <-  data.frame(
+  year = c(2070)
+)
+predict(models, newdata = new.year, interval = "prediction")
+```
+
+
+
+
+
+\pagebreak
+```{r}
+TempChange <- rep(NA,50)
+for (i in 91:140) {
+  TempChange[i-90] <- allTemp[i+1,3] - allTemp[i,3]
+}
+TempChange
+hist(TempChange)
+```
+
+```{r}
+TempChange
+summary(TempChange)
+sd(TempChange)
+```
+
+
+

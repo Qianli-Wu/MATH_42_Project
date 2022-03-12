@@ -1,0 +1,250 @@
+---
+title: "2070 Temperature Prediction"
+author: "吴千里"
+date: "更新于 `r format(Sys.time(), '%d %B, %Y')`"
+documentclass: ctexart
+geometry: "left=2cm,right=2cm,top=2cm,bottom=2cm"
+keywords:
+  - 中文
+  - R Markdown
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+\pagebreak 
+# 假设 Assumption
+1. 0W-12W（经度）, 54N-70N（纬度）看作能影响鱼群的海域面积  
+2. 不考虑未来出现的意外/人为因素  
+
+\pagebreak
+
+
+# 温度数据
+```{r import_data, echo = F}
+# import data from datafile
+datafileCSV <- read.csv("/Users/qianli/Downloads/datafile.csv")
+```
+
+```{r process_data, echo = F}
+# 初步处理数据，去掉东经和南纬的数据
+library(dplyr)
+data <- datafileCSV
+# only need West latitude and North longitude
+data <- data %>% filter(grepl("W",Longitude) & grepl("N",Latitude))
+# Convert each column to numeric data
+data[,1] <- as.numeric(substr(data[,1], 1, nchar(data[,1])-1))
+data[,2] <- as.numeric(substr(data[,2], 1, nchar(data[,2])-1))
+data[,3] <- as.numeric(substr(data[,3], 5,8))
+# drop NAs
+data <- na.omit(data)
+```
+
+```{r set range}
+# 设置需要的经纬度范围（可更改）
+# Set the bounds of regions here
+longitude_lowerbound <- 0
+longitude_upperbound <- 12
+latitude_lowerbound <- 54
+latitude_upperbound <- 70
+```
+
+```{r echo = FALSE}
+# 提取每年平均温度
+# Only require data from 0-12W and 54-70N
+data <- data %>% 
+  filter(Longitude < longitude_upperbound & 
+           Longitude > longitude_lowerbound & 
+           Latitude < latitude_upperbound & 
+           Latitude > latitude_lowerbound)
+```
+```{r}
+# Get the average temperature for each year
+data <- data %>% group_by(Time) %>% summarise(avg_temp = mean(Sea.Surface.Temperature))
+# Print data
+data
+```
+
+\pagebreak
+
+```{r fig.cap="年平均海表温度（0-12W & 54-70N)"}
+plot(data$Time, 
+     data$avg_temp, 
+     col = "blue", 
+     main = "Sea Surface Temperature of 0-12W and 54-70N from 1981-2015",
+     xlab = "Year", 
+     ylab = "Temperature (celsius)")
+```
+
+\pagebreak
+
+# 预测区间  
+
+A prediction interval is a type of confidence interval (CI) used with predictions in regression analysis; it is a range of values that predicts the value of a new observation, based on your existing model.  
+
+The formula of prediction interval:
+$$\hat{y_h} \pm t_{{\alpha \over 2}, n-2} \cdot \sqrt{MSE(1+{ 1 \over n} + {(x_h - \overline{x})^2 \over \sum(s_i - \overline{x})^2}}$$  
+
+```{r prediction interval, echo=FALSE}
+temperature <- data$avg_temp
+year <- data$Time
+models <- lm(temperature ~ year)
+new.year <-  data.frame(
+  year = c(2070)
+)
+```
+```{r}
+predict(models, newdata = new.year, interval = "prediction")
+```
+
+Our 95% Prediction Interval is (8.58, 11.93), which means according to our regression model, the average sea surface temperature in 2070 will fall into the range of 8.58$^\circ$C to 11.93$^\circ$C 95% of time.  
+
+```{r echo = F, fig.cap="2070年的预测区间以及预期数值（红点）", warning=FALSE, message=F}
+new.year <- data.frame(
+  year = seq(from = 1981, to = 2072, by = 1)
+)
+pred.int <- predict(models, newdata = new.year, interval = "prediction")
+for (i in 36:92) {
+  data[i,1] <- data[i-1,1]+1
+}
+mydata <- cbind(data, pred.int)
+library("ggplot2")
+p <- ggplot(mydata, aes(Time, avg_temp)) +
+  geom_point() +
+  stat_smooth(method = lm)
+
+
+p + geom_line(aes(y = lwr), color = "red", linetype = "dashed")+
+    geom_line(aes(y = upr), color = "red", linetype = "dashed")+ theme_bw() +geom_point(x = 2070, y = 10.2526, col = "red")
+```
+
+
+
+
+
+\pagebreak
+
+
+# (忽略）仅Deterministic的预测
+```{r echo = F}
+# import temperature data from 1880 - 2020
+allTemp <- read.csv("temperature.csv")
+allTemp <- allTemp[,c(2,4)]
+colnames(allTemp) <- c("Year", "Temperature")
+```
+
+
+```{r echo=F, fig.cap="1880-2020海表温度变化趋势"}
+# Plot the scatter plot of temperature and year
+plot(allTemp$Year, 
+     allTemp$Temperature, 
+     xlab = "Year", 
+     ylab = "Temperature")
+abline(lm(allTemp$Temperature ~ allTemp$Year), col = "red")
+```
+
+上图应使用非线性的拟合曲线，或者可以仅使用近50年的数据，如下页面所示：  
+
+\pagebreak
+```{r echo=F, fig.cap="1970-2020年海表温度数据拟合曲线"}
+plot(allTemp$Year[91:141], 
+     allTemp$Temperature[91:141], 
+     xlim = c(1970, 2080), 
+     ylim = c(-0.2, 2), xlab = "Year", 
+     ylab = "Temperature")
+abline(lm(allTemp$Temperature[91:141] ~ allTemp$Year[91:141]), col = "red")
+points(2070, 1.86, col = "red")
+```
+
+上图的\textcolor{red}{红点}代表2070年拟合曲线预测的海水温度，大约为**+1.86** $^\circ$C  
+
+\pagebreak
+
+# 包含Stochasticity的预测  
+
+### 方法一：通过R语言自带公式得出预测区间 
+\textcolor{red}{缺点：} 不清楚其统计原理  
+\textcolor{green}{优点：} 简单明了，且数据比较合理
+```{r}
+temperature <- allTemp$Temperature[70:141]
+year <- allTemp$Year[70:141]
+models <- lm(temperature ~ year)
+models
+```
+
+```{r}
+new.year <-  data.frame(
+  year = c(2070)
+)
+predict(models, newdata = new.year, interval = "prediction")
+```
+
+**总结：**预期值是1.56$^\circ$C，预测区间是1.37$^\circ$C - 1.74$^\circ$C。  
+
+\pagebreak
+
+### 方法二：看作discrete model
+每年温度变化量是一个取自**1950-2020年温度增加量**的随机数，模拟到2070年  
+\textcolor{red}{缺点：} 不确定变成discrete是否合理 + 温度偏高  
+\textcolor{green}{优点：} 过程清晰 + 和作业题相似    
+
+```{r echo=F, fig.cap="每年温度变化量的频率分布"}
+TempChange <- rep(NA,70)
+for (i in 71:140) {
+  TempChange[i-70] <- allTemp[i+1,2] - allTemp[i,2]
+}
+hist(TempChange)
+```
+
+```{r background="blue" }
+# 1950-2020年间每年温度变化量（后一年温度减前一年）
+TempChange
+# 上述数据的总结：
+summary(TempChange)
+# 上述数据的方差： 
+sd(TempChange)
+```
+
+### predict temperature in 2070 using discrete model
+```{r echo=F}
+tempPrediction <- function(base = 1.01, x){
+  # The temperature of 2020 is 1.01
+  temp2020 <- base
+  Result <- as.data.frame(matrix(NA, ncol = 2, nrow = 51*x))
+  colnames(Result) <- c('Year', 'Temperature')
+  
+  # loop x times of simulation
+  for (j in 1:x) {
+    # Create a list to store temperature value
+    temp_prediction <- rep(NA, 51)
+    temp_prediction[1] <- temp2020
+    Result[51*(j-1)+1,1] <- 2020
+    Result[51*(j-1)+1,2] <- temp2020
+    # let the change of temperature be a random number selected from TempChange to simulate the temperature in 2070
+    for (i in 1:50) {
+      # randomly select a temperature change
+      rand_value <- sample(1:70,1)
+      temperature_change <- TempChange[rand_value]
+      # Add the temperature change to the temperature of previous year
+      temp_prediction[i+1] <- temp_prediction[i]+temperature_change
+      Result[51*(j-1)+i+1,1] <- Result[51*(j-1)+i,1]+1
+      Result[51*(j-1)+i+1,2] <- temp_prediction[i+1]
+    }
+  }
+  library(ggplot2)
+  ggplot(data = Result, aes(x=Year, y=Temperature, group = Year)) + geom_boxplot() + theme_bw()
+}
+
+```
+```{r fig.cap="50次模拟2070年温度分布"}
+# 模拟50次的数据分布
+tempPrediction(x = 50)
+```
+
+\textcolor{red}{总结：2070年海水表面温度预期值是1.79$^\circ$C， 预测区间为1.7$^\circ$C - 1.9$^\circ$C之间。}  
