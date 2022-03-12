@@ -1,0 +1,303 @@
+---
+title: "2070 Temperature Prediction"
+author: "Qianli Wu"
+date: "更新于 `r format(Sys.time(), '%d %B, %Y')`"
+documentclass: ctexart
+geometry: "left=2cm,right=2cm,top=2cm,bottom=2cm"
+keywords:
+  - 中文
+  - R Markdown
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+\pagebreak 
+# Assumption
+1. 鱼群会自己向舒适温度区间游动
+2. 鱼群适应的温度范围不会改变
+
+\pagebreak
+
+# Prediction Interval
+A prediction interval is a type of confidence interval (CI) used with predictions in regression analysis; it is a range of values that predicts the value of a new observation, based on your existing model.  
+
+The formula of prediction interval:
+$$\hat{y_h} \pm t_{{\alpha \over 2}, n-2} \cdot \sqrt{MSE(1+{ 1 \over n} + {(x_h - \overline{x})^2 \over \sum(s_i - \overline{x})^2})}$$
+
+\pagebreak
+
+# Temperature Prediction
+```{r import_data}
+# import data from datafile
+datafileCSV <- read.csv("/Users/qianli/Downloads/datafile.csv")
+```
+
+```{r process_data}
+# 初步处理数据，转化西经为负数，东经为正数
+library(dplyr)
+data <- datafileCSV
+# only need West latitude and North longitude
+dataWest <- data %>% filter(grepl("W",Longitude) & grepl("N",Latitude))
+dataEast <- data %>% filter(grepl("E",Longitude) & grepl("N",Latitude))
+# Convert each column to numeric data
+dataWest[,1] <- as.numeric(substr(dataWest[,1], 1, nchar(dataWest[,1])-1))
+dataEast[,1] <- as.numeric(substr(dataEast[,1], 1, nchar(dataEast[,1])-1))
+dataWest[,2] <- as.numeric(substr(dataWest[,2], 1, nchar(dataWest[,2])-1))
+dataEast[,2] <- as.numeric(substr(dataEast[,2], 1, nchar(dataEast[,2])-1))
+dataWest[,3] <- as.numeric(substr(dataWest[,3], 5,8))
+dataEast[,3] <- as.numeric(substr(dataEast[,3], 5,8))
+dataWest[,1] <- -dataWest[,1]
+dataTotal <- rbind(dataEast, dataWest)
+dataTotal <- na.omit(dataTotal)
+```
+
+
+```{r set range}
+# 设置需要的经纬度范围（可更改）
+# Set the bounds of regions here
+longitude_lowerbound <- -12
+longitude_upperbound <- 10
+latitude_lowerbound <- 50
+latitude_upperbound <- 80
+```
+
+```{r}
+# 提取每年平均温度
+# Only require data from -12-10E and 50-80N
+dataTotal <- dataTotal %>% 
+  filter(Longitude <= longitude_upperbound & 
+           Longitude >= longitude_lowerbound & 
+           Latitude <= latitude_upperbound & 
+           Latitude >= latitude_lowerbound)
+```
+
+```{r}
+# 把同地点1981-2020的温度数据拷贝一份副本
+dataTotal2 <- dataTotal %>% arrange(Longitude, Latitude) %>% group_by(Longitude, Latitude, Time) %>% summarise(avg_temperature = mean(Sea.Surface.Temperature))
+# 同地点1981-2020的温度数据
+dataTotal <- dataTotal %>% arrange(Longitude, Latitude) %>% group_by(Longitude, Latitude, Time) %>% summarise(avg_temperature = mean(Sea.Surface.Temperature))
+library(tidyverse)
+# 以地点为主列，把每年的温度放到右边（每列即年份），结果如下所示
+dataTotal <- dataTotal %>% pivot_wider(names_from = Time, values_from = avg_temperature)
+dataTotal
+```
+```{r}
+# 用r内置prediction做一个预测2070年温度的区间
+year <- seq(1981, 2015)
+new.year <-  data.frame(
+  # 这个地方可以调整年份
+  year = c(2070)
+)
+# 创建一个data frame存储prediction出来的数据
+Prediction <- as.data.frame(matrix(data = NA, nrow = 660, ncol = 3))
+# 因为总共有660个location， 所以重复660次计算
+for (i in 1:660) {
+  temperature <- as.integer(dataTotal[i,3:37])
+  model <- lm(temperature ~ year)
+  Prediction[i,] <- predict(model, newdata = new.year, interval = "prediction")
+}
+colnames(Prediction) <- c("Expected", "Lower_bound", "Upper_bound")
+dataMerge <- cbind(dataTotal, Prediction)
+# 找出合适Meckerel（M）和Herring（H）生存的温度的海域
+M <- dataMerge %>% filter(Lower_bound < 9.6 & Upper_bound > 8.86) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+H <- dataMerge %>% filter(Lower_bound < 9.8 & Upper_bound > 8.8) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+# Expected Value
+ME <- dataMerge %>% filter(Expected < 9.6 & Expected > 8.86) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+HE <- dataMerge %>% filter(Expected < 9.8 & Expected > 8.8) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+```
+
+```{r}
+# 大概看一下边界
+cat("Mackerel Range \n")
+cbind(summary(M[,1]),summary(M[,2]))
+```
+```{r}
+# 大概看一下边界
+cat("Herring Range \n")
+cbind(summary(H[,1]), summary(H[,2]))
+```
+
+```{r}
+library(ggplot2)
+p <- ggplot(H, aes(Longitude, Latitude)) + geom_point(col = "blue") + theme_bw() + coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") +  ylab("Latitude(N)") + 
+  ggtitle("Herring Possible Distribution (Suitable Temperature) in 2070") +
+  theme(plot.title = element_text(hjust = 0.5))
+p
+```
+```{r}
+p <- ggplot(M, aes(Longitude, Latitude)) + 
+  geom_point(col = "red") + 
+  theme_bw() + 
+  coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + 
+  xlab("Longitude(E)") +  
+  ylab("Latitude(N)") +
+  ggtitle("Mackerel Possible Distribution (Suitable Temperature) in 2070") +
+  theme(plot.title = element_text(hjust = 0.5))
+p
+```
+
+```{r}
+p <- ggplot(HE, aes(Longitude, Latitude)) + geom_point(col = "blue") + theme_bw() + 
+  coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") +  ylab("Latitude(N)") +
+  ggtitle("Most Likely Locations of Herring in 2070") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+p
+```
+
+```{r}
+p <- ggplot(ME, aes(Longitude, Latitude)) + geom_point(col = "red") + theme_bw() + 
+  coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") +  ylab("Latitude(N)") +
+  ggtitle("Most Likely Locations of Markerel in 2070") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+p
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+for (i in 1981:2014) {
+  
+M1981 <- dataTotal2 %>% filter(avg_temperature < 9.6 & avg_temperature > 8.86 & Time == i)
+pM1981 <- ggplot(M1981, aes(Longitude, Latitude)) + 
+  geom_point(col = "red") + 
+  theme_bw() + 
+  coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") + 
+  ylab("Latitude(N)") + 
+  ggtitle(paste("Likely Locations of Mackerek in ", i)) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+print(pM1981)
+}
+x <- 2070
+for (i in 2016:x) {
+  tempYear <- i
+  year <- seq(1981, 2015)
+  new.year <-  data.frame(
+    year = c(tempYear)
+  )
+  Prediction <- as.data.frame(matrix(data = NA, nrow = 660, ncol = 3))
+  for (i in 1:660) {
+    temperature <- as.integer(dataTotal[i,3:37])
+    model <- lm(temperature ~ year)
+    Prediction[i,] <- predict(model, newdata = new.year, interval = "prediction")
+  }
+  colnames(Prediction) <- c("Expected", "Lower_bound", "Upper_bound")
+  dataMerge <- cbind(dataTotal, Prediction)
+  M <- dataMerge %>% filter(Lower_bound < 9.6 & Upper_bound > 8.86) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+  H <- dataMerge %>% filter(Lower_bound < 9.8 & Upper_bound > 8.8) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+  ME <- dataMerge %>% filter(Expected < 9.6 & Expected > 8.86) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+  HE <- dataMerge %>% filter(Expected < 9.8 & Expected > 8.8) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+  library(ggplot2)
+  # pH <- ggplot(H, aes(Longitude, Latitude)) + geom_point(col = "blue") + theme_bw() + coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") +  ylab("Latitude(N)") + 
+  #   ggtitle(paste("Herring Possible Distribution (8.86-9.6C) in ", tempYear)) +
+  #   theme(plot.title = element_text(hjust = 0.5))
+  # pM <- ggplot(M, aes(Longitude, Latitude)) + 
+  #   geom_point(col = "red") + 
+  #   theme_bw() + 
+  #   coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + 
+  #   xlab("Longitude(E)") +  
+  #   ylab("Latitude(N)") +
+  #   ggtitle(paste("Mackerel Possible Distribution (8.8-9.8C) in ", tempYear)) +
+  #   theme(plot.title = element_text(hjust = 0.5))
+  # pHE <- ggplot(HE, aes(Longitude, Latitude)) + geom_point(col = "blue") + theme_bw() + 
+  #   coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") +  ylab("Latitude(N)") +
+  #   ggtitle(paste("Most Likely Locations of Herring in ", tempYear)) +
+  #   theme(plot.title = element_text(hjust = 0.5)) 
+  pME <- ggplot(data = ME, aes(Longitude, Latitude)) + geom_point(col = "red") + theme_bw() + 
+    coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") +  ylab("Latitude(N)") +
+    ggtitle(paste("Most Likely Locations of Markerel in ", tempYear)) +
+    theme(plot.title = element_text(hjust = 0.5))  
+  # print(pH)
+  # print(pM)
+  #print(pHE)
+  print(pME)
+}
+```
+
+```{r}
+for (i in 1981:2015) {
+H1981 <- dataTotal2 %>% filter(avg_temperature < 9.8 & avg_temperature > 8.8 & Time == i)
+pH1981 <- ggplot(H1981, aes(Longitude, Latitude)) + 
+  geom_point(col = "blue") + 
+  theme_bw() + 
+  coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") + 
+  ylab("Latitude(N)") + 
+  ggtitle(paste("Likely Locations of Herring in ", i)) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+print(pH1981)
+}
+x <- 2072
+for (i in 2016:x) {
+  tempYear <- i
+  year <- seq(1981, 2015)
+  new.year <-  data.frame(
+    year = c(tempYear)
+  )
+  Prediction <- as.data.frame(matrix(data = NA, nrow = 660, ncol = 3))
+  for (i in 1:660) {
+    temperature <- as.integer(dataTotal[i,3:37])
+    model <- lm(temperature ~ year)
+    Prediction[i,] <- predict(model, newdata = new.year, interval = "prediction")
+  }
+  colnames(Prediction) <- c("Expected", "Lower_bound", "Upper_bound")
+  dataMerge <- cbind(dataTotal, Prediction)
+  M <- dataMerge %>% filter(Lower_bound < 9.6 & Upper_bound > 8.86) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+  H <- dataMerge %>% filter(Lower_bound < 9.8 & Upper_bound > 8.8) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+  ME <- dataMerge %>% filter(Expected < 9.6 & Expected > 8.86) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+  HE <- dataMerge %>% filter(Expected < 9.8 & Expected > 8.8) %>% select(Longitude, Latitude, Expected, Lower_bound, Upper_bound)
+  library(ggplot2)
+  pHE <- ggplot(HE, aes(Longitude, Latitude)) + geom_point(col = "blue") + theme_bw() + 
+    coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") +  ylab("Latitude(N)") +
+    ggtitle(paste("Most Likely Locations of Herring in ", tempYear)) +
+    theme(plot.title = element_text(hjust = 0.5)) 
+  # print(pH)
+  # print(pM)
+  print(pHE)
+  # print(pME)
+}
+```
+
+
+```{r}
+for (i in 1981:2015) {
+  
+M1981 <- dataTotal2 %>% filter(avg_temperature < 9.6 & avg_temperature > 8.86 & Time == i)
+pM1981 <- ggplot(M1981, aes(Longitude, Latitude)) + 
+  geom_point(col = "red") + 
+  theme_bw() + 
+  coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") + 
+  ylab("Latitude(N)") + 
+  ggtitle(paste("Likely Locations of Mackerek in ", i)) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+print(pM1981)
+}
+```
+```{r}
+for (i in 1981:2015) {
+H1981 <- dataTotal2 %>% filter(avg_temperature < 9.8 & avg_temperature > 8.8 & Time == i)
+pH1981 <- ggplot(H1981, aes(Longitude, Latitude)) + 
+  geom_point(col = "blue") + 
+  theme_bw() + 
+  coord_fixed(ratio = 1, xlim = c(-12, 10), ylim = c(50, 80)) + xlab("Longitude(E)") + 
+  ylab("Latitude(N)") + 
+  ggtitle(paste("Likely Locations of Herring in ", i)) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+print(pH1981)
+}
+```
+
+
+
